@@ -2,82 +2,115 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-// --- الإعداد الأساسي للمشهد ---
-
-// 1. المشهد (Scene )
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xe0e0e0); // خلفية رمادية فاتحة
-
-// 2. الكاميرا (Camera)
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 1.5, 3); // ضبط موضع الكاميرا
-
-// 3. العارض (Renderer)
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.getElementById('avatar-container').appendChild(renderer.domElement);
-
-// --- الإضاءة ---
-
-// إضاءة محيطية خفيفة
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-scene.add(ambientLight);
-
-// إضاءة موجهة (مثل الشمس)
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-directionalLight.position.set(5, 10, 7.5);
-scene.add(directionalLight);
-
-// --- التحكم بالكاميرا ---
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 1, 0); // اجعل الكاميرا تنظر إلى وسط الشخصية
-controls.update();
-
-// --- تحميل الشخصية الافتراضية (Avatar) ---
-
-let mixer; // متغير لتشغيل الحركات
-let model; // متغير لحفظ النموذج
+// --- تهيئة المتغيرات العالمية ---
+let scene, camera, renderer, controls, mixer, model;
+const animations = {};
 const clock = new THREE.Clock();
+const fbxLoader = new FBXLoader();
 
-const loader = new FBXLoader();
-loader.load('models/waving.fbx', (fbx) => {
-    model = fbx;
-    model.scale.set(0.01, 0.01, 0.01); // تصغير النموذج لحجم مناسب
-    scene.add(model);
+// --- قاموس الترجمة ---
+const dictionary = {
+    "تلويح": "wave",
+    "مرحبا": "wave",
+    "تصفيق": "clap",
+    "لا": "no"
+};
 
-    // إعداد مشغل الحركات
-    mixer = new THREE.AnimationMixer(model);
-    
-    // تشغيل الحركة المدمجة في الملف
-    const action = mixer.clipAction(fbx.animations[0]);
-    
-    // ربط الزر بتشغيل الحركة
-    document.getElementById('playButton').addEventListener('click', () => {
-        action.reset().play(); // أعد تشغيل الحركة من البداية
-    });
+// --- دالة البداية الرئيسية ---
+function init() {
+    // 1. إعداد المشهد
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe0e0e0);
 
-}, undefined, (error) => {
-    console.error(error);
-});
+    // 2. إعداد الكاميرا
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.5, 3);
 
-// --- حلقة العرض (Animation Loop) ---
+    // 3. إعداد العارض
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('avatar-container').appendChild(renderer.domElement);
 
+    // 4. إعداد الإضاءة
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(5, 10, 7.5);
+    scene.add(directionalLight);
+
+    // 5. إعداد التحكم بالكاميرا
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    controls.update();
+
+    // 6. تحميل النموذج والحركات
+    loadAvatarAndAnimations();
+
+    // 7. ربط عناصر واجهة المستخدم
+    document.getElementById('translateButton').addEventListener('click', translateTextToSign);
+    window.addEventListener('resize', onWindowResize);
+
+    // 8. بدء حلقة العرض
+    animate();
+}
+
+// --- دوال التحميل ---
+function loadAvatarAndAnimations() {
+    fbxLoader.load('models/avatar.fbx', (fbx) => {
+        model = fbx;
+        model.scale.set(0.01, 0.01, 0.01);
+        scene.add(model);
+        mixer = new THREE.AnimationMixer(model);
+
+        // تحميل كل الحركات بعد تحميل النموذج
+        loadAnimation('models/waving_animation.fbx', 'wave');
+        loadAnimation('models/clapping_animation.fbx', 'clap');
+        loadAnimation('models/no_animation.fbx', 'no');
+
+    }, undefined, (error) => console.error(error));
+}
+
+function loadAnimation(url, name) {
+    fbxLoader.load(url, (fbx) => {
+        animations[name] = fbx.animations[0];
+        console.log(`Animation "${name}" loaded.`);
+    }, undefined, (error) => console.error(error));
+}
+
+// --- دوال التحكم والترجمة ---
+function playAnimation(name) {
+    if (!mixer || !animations[name]) {
+        console.warn(`Animation "${name}" is not ready yet.`);
+        return;
+    }
+    mixer.stopAllAction();
+    const action = mixer.clipAction(animations[name]);
+    action.play();
+}
+
+function translateTextToSign() {
+    const text = document.getElementById('textInput').value.trim().toLowerCase();
+    const animationName = dictionary[text];
+
+    if (animationName) {
+        playAnimation(animationName);
+    } else {
+        console.log(`الكلمة "${text}" غير موجودة في القاموس.`);
+    }
+}
+
+// --- حلقة العرض ودوال الأحداث ---
 function animate() {
     requestAnimationFrame(animate);
-
-    // تحديث مشغل الحركات في كل إطار
-    if (mixer) {
-        mixer.update(clock.getDelta());
-    }
-
+    if (mixer) mixer.update(clock.getDelta());
     renderer.render(scene, camera);
 }
 
-animate();
-
-// --- التعامل مع تغيير حجم النافذة ---
-window.addEventListener('resize', () => {
+function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
+}
+
+// --- نقطة انطلاق البرنامج ---
+init();

@@ -3,15 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>مشروع لغة الإشارة - خطوة 1</title>
+    <title>مشروع لغة الإشارة - خطوة 3 (منظم)</title>
+    
+    <!-- 1. استدعاء ملف التنسيقات -->
     <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <h1>الشخصية الافتراضية</h1>
-    <button id="playButton">شغّل حركة التلويح</button>
-    <div id="avatar-container"></div>
 
-    <!-- استيراد مكتبة Three.js وملحقاتها -->
+    <!-- 2. استيراد مكتبة Three.js (Import Map) -->
     <script type="importmap">
         {
             "imports": {
@@ -20,7 +17,19 @@
             }
         }
     </script>
+</head>
+<body>
+    <!-- واجهة المستخدم -->
+    <div class="ui-panel">
+        <h2>مترجم لغة الإشارة (تجريبي )</h2>
+        <input type="text" id="textInput" placeholder="اكتب كلمة هنا (مثل: تلويح, تصفيق, لا)">
+        <button id="translateButton">ترجم إلى إشارة</button>
+    </div>
 
+    <!-- الحاوية التي ستعرض فيها الشخصية -->
+    <div id="avatar-container"></div>
+
+    <!-- 3. استدعاء ملف الجافاسكريبت الرئيسي (يجب أن يكون في نهاية الـ body) -->
     <script type="module" src="main.js"></script>
 </body>
 </html>
