@@ -3,106 +3,161 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
 // --- تهيئة المتغيرات العالمية ---
-let scene, camera, renderer, controls, mixer, model;
-const animations = {};
+let scene, camera, renderer, controls, model;
+let recordedAnimationData = null; // لتخزين بيانات الحركة المسجلة
+let currentFrame = 0;
+let isPlayingRecorded = false;
 const clock = new THREE.Clock();
-const fbxLoader = new FBXLoader();
 
-// --- قاموس الترجمة ---
-const dictionary = {
-    "تلويح": "wave",
-    "مرحبا": "wave",
-    "تصفيق": "clap",
-    "لا": "no"
+// --- قاموس الربط بين نقاط MediaPipe وعظام Mixamo ---
+// هذا هو الجزء السحري. قد تحتاج لتعديله حسب نموذجك.
+const boneMap = {
+    // المعصم
+    0: 'mixamorigHips', // سنستخدم الورك كنقطة مرجعية رئيسية للحركة
+
+    // الإبهام
+    1: 'mixamorigLeftHandThumb1',
+    2: 'mixamorigLeftHandThumb2',
+    3: 'mixamorigLeftHandThumb3',
+    4: 'mixamorigLeftHandThumb4',
+
+    // السبابة
+    5: 'mixamorigLeftHandIndex1',
+    6: 'mixamorigLeftHandIndex2',
+    7: 'mixamorigLeftHandIndex3',
+    8: 'mixamorigLeftHandIndex4',
+
+    // الوسطى
+    9: 'mixamorigLeftHandMiddle1',
+    10: 'mixamorigLeftHandMiddle2',
+    11: 'mixamorigLeftHandMiddle3',
+    12: 'mixamorigLeftHandMiddle4',
+
+    // البنصر
+    13: 'mixamorigLeftHandRing1',
+    14: 'mixamorigLeftHandRing2',
+    15: 'mixamorigLeftHandRing3',
+    16: 'mixamorigLeftHandRing4',
+
+    // الخنصر
+    17: 'mixamorigLeftHandPinky1',
+    18: 'mixamorigLeftHandPinky2',
+    19: 'mixamorigLeftHandPinky3',
+    20: 'mixamorigLeftHandPinky4',
 };
+
 
 // --- دالة البداية الرئيسية ---
 function init() {
-    // 1. إعداد المشهد
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xe0e0e0);
 
-    // 2. إعداد الكاميرا
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 1.5, 3);
 
-    // 3. إعداد العارض
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('avatar-container').appendChild(renderer.domElement);
 
-    // 4. إعداد الإضاءة
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    // 5. إعداد التحكم بالكاميرا
     controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 1, 0);
     controls.update();
 
-    // 6. تحميل النموذج والحركات
-    loadAvatarAndAnimations();
+    loadAvatar();
+    loadRecordedAnimation('models/wave_hand_data.json'); // تأكد من أن الاسم يطابق اسم ملفك
 
-    // 7. ربط عناصر واجهة المستخدم
-    document.getElementById('translateButton').addEventListener('click', translateTextToSign);
+    document.getElementById('playRecordedButton').addEventListener('click', playRecordedAnimation);
     window.addEventListener('resize', onWindowResize);
 
-    // 8. بدء حلقة العرض
     animate();
 }
 
 // --- دوال التحميل ---
-function loadAvatarAndAnimations() {
+function loadAvatar() {
+    const fbxLoader = new FBXLoader();
     fbxLoader.load('models/avatar.fbx', (fbx) => {
         model = fbx;
         model.scale.set(0.01, 0.01, 0.01);
         scene.add(model);
-        mixer = new THREE.AnimationMixer(model);
-
-        // تحميل كل الحركات بعد تحميل النموذج
-        loadAnimation('models/waving_animation.fbx', 'wave');
-        loadAnimation('models/clapping_animation.fbx', 'clap');
-        loadAnimation('models/no_animation.fbx', 'no');
-
+        console.log("Avatar loaded. Bones:", model.children[1].skeleton.bones.map(b => b.name));
     }, undefined, (error) => console.error(error));
 }
 
-function loadAnimation(url, name) {
-    fbxLoader.load(url, (fbx) => {
-        animations[name] = fbx.animations[0];
-        console.log(`Animation "${name}" loaded.`);
-    }, undefined, (error) => console.error(error));
+function loadRecordedAnimation(url) {
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            recordedAnimationData = data;
+            console.log(`Recorded animation loaded with ${data.length} frames.`);
+        })
+        .catch(error => console.error('Error loading recorded animation:', error));
 }
 
-// --- دوال التحكم والترجمة ---
-function playAnimation(name) {
-    if (!mixer || !animations[name]) {
-        console.warn(`Animation "${name}" is not ready yet.`);
+// --- دوال التحكم بالحركة المسجلة ---
+function playRecordedAnimation() {
+    if (!recordedAnimationData) {
+        alert("لم يتم تحميل بيانات الحركة المسجلة بعد.");
         return;
     }
-    mixer.stopAllAction();
-    const action = mixer.clipAction(animations[name]);
-    action.play();
+    isPlayingRecorded = true;
+    currentFrame = 0;
 }
 
-function translateTextToSign() {
-    const text = document.getElementById('textInput').value.trim().toLowerCase();
-    const animationName = dictionary[text];
-
-    if (animationName) {
-        playAnimation(animationName);
-    } else {
-        console.log(`الكلمة "${text}" غير موجودة في القاموس.`);
+function updateAvatarFromRecordedData() {
+    if (!isPlayingRecorded || !model || !recordedAnimationData || currentFrame >= recordedAnimationData.length) {
+        isPlayingRecorded = false;
+        return;
     }
+
+    const frameData = recordedAnimationData[currentFrame];
+    const bones = model.children[1].skeleton.bones;
+
+    // الحصول على موضع المعصم المرجعي من البيانات
+    const wristReference = new THREE.Vector3(frameData[0].x, 1 - frameData[0].y, frameData[0].z);
+
+    // تحديث دوران العظام
+    for (let i = 1; i < frameData.length; i++) {
+        const boneName = boneMap[i];
+        if (boneName) {
+            const bone = bones.find(b => b.name === boneName);
+            if (bone) {
+                const landmark = frameData[i];
+                const targetPosition = new THREE.Vector3(landmark.x, 1 - landmark.y, landmark.z);
+                
+                // حساب الاتجاه من المعصم إلى نقطة المفصل
+                const direction = new THREE.Vector3().subVectors(targetPosition, wristReference).normalize();
+                
+                // حساب الدوران لتوجيه العظمة
+                const quaternion = new THREE.Quaternion();
+                const defaultDirection = new THREE.Vector3(0, 1, 0); // الاتجاه الافتراضي للعظمة
+                quaternion.setFromUnitVectors(defaultDirection, direction);
+                
+                // تطبيق الدوران على العظمة
+                // bone.quaternion.slerp(quaternion, 0.1); // استخدام slerp لحركة أنعم
+                 bone.quaternion.copy(quaternion);
+            }
+        }
+    }
+
+    currentFrame++;
 }
+
 
 // --- حلقة العرض ودوال الأحداث ---
 function animate() {
     requestAnimationFrame(animate);
-    if (mixer) mixer.update(clock.getDelta());
+    const delta = clock.getDelta();
+
+    if (isPlayingRecorded) {
+        updateAvatarFromRecordedData();
+    }
+    
     renderer.render(scene, camera);
 }
 
