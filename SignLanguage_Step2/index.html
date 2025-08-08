@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مشروع لغة الإشارة - خطوة 2</title>
+</head>
+<body>
+    <h1>الشخصية الافتراضية (مع حركات منفصلة)</h1>
+    <div id="controls">
+        <button id="waveButton">تلويح</button>
+        <button id="clapButton">تصفيق</button>
+    </div>
+    <div id="avatar-container"></div>
+
+    <!-- استيراد مكتبة Three.js وملحقاتها -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- الكود البرمجي الرئيسي -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+        // --- الإعداد الأساسي للمشهد، الكاميرا، العارض، والإضاءة ---
+        const scene = new THREE.Scene( );
+        scene.background = new THREE.Color(0xe0e0e0);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.5, 3);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('avatar-container').appendChild(renderer.domElement);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 1, 0);
+        controls.update();
+
+        let mixer;
+        let model;
+        const animations = {}; // كائن لتخزين الحركات باسمها
+        const clock = new THREE.Clock();
+        const fbxLoader = new FBXLoader();
+
+        // --- الخطوة 1: تحميل النموذج الأساسي (Avatar) ---
+        fbxLoader.load('../models/avatar.fbx', (fbx) => {
+            model = fbx;
+            model.scale.set(0.01, 0.01, 0.01);
+            scene.add(model);
+
+            // إعداد مشغل الحركات على النموذج
+            mixer = new THREE.AnimationMixer(model);
+
+            // --- الخطوة 2: تحميل الحركات وربطها ---
+            loadAnimation('../models/waving_animation.fbx', 'wave');
+            loadAnimation('../models/clapping_animation.fbx', 'clap');
+
+        }, undefined, (error) => {
+            console.error('Error loading avatar:', error);
+        });
+
+        // --- دالة مساعدة لتحميل الحركات المنفصلة ---
+        function loadAnimation(url, name) {
+            fbxLoader.load(url, (fbx) => {
+                // استخلاص مقطع الحركة (Animation Clip) من الملف
+                const animationClip = fbx.animations[0];
+                animations[name] = animationClip; // تخزين الحركة باسمها
+                console.log(`Animation "${name}" loaded successfully.`);
+            }, undefined, (error) => {
+                console.error(`Error loading animation ${name}:`, error);
+            });
+        }
+
+        // --- دالة لتشغيل حركة معينة بالاسم ---
+        function playAnimation(name) {
+            if (!mixer || !animations[name]) {
+                console.warn(`Animation "${name}" is not ready yet.`);
+                return;
+            }
+            
+            // إيقاف كل الحركات الأخرى
+            mixer.stopAllAction();
+
+            // تشغيل الحركة المطلوبة
+            const action = mixer.clipAction(animations[name]);
+            action.play();
+        }
+
+        // --- ربط الأزرار بالدوال ---
+        document.getElementById('waveButton').addEventListener('click', () => playAnimation('wave'));
+        document.getElementById('clapButton').addEventListener('click', () => playAnimation('clap'));
+
+
+        // --- حلقة العرض (Animation Loop) ---
+        function animate() {
+            requestAnimationFrame(animate);
+            if (mixer) {
+                mixer.update(clock.getDelta());
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- التعامل مع تغيير حجم النافذة ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
