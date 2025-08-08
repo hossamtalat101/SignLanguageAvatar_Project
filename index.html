@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مشروع لغة الإشارة - خطوة 1</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>الشخصية الافتراضية</h1>
+    <button id="playButton">شغّل حركة التلويح</button>
+    <div id="avatar-container"></div>
+
+    <!-- استيراد مكتبة Three.js وملحقاتها -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
