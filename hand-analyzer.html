@@ -3,24 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>أداة تحليل اليد - MediaPipe</title>
+    <title>أداة تحليل اليد واستخراج البيانات</title>
     <style>
         body {
             font-family: 'Cairo', sans-serif;
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            align-items: flex-start; /* محاذاة العناصر للأعلى */
             justify-content: center;
+            gap: 20px; /* مسافة بين الفيديو والبيانات */
             height: 100vh;
             margin: 0;
-            background-color: #333;
+            padding: 20px;
+            background-color: #2d3436;
             color: white;
+            box-sizing: border-box;
         }
-        .container {
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .video-container {
             position: relative;
             width: 640px;
             height: 480px;
-            border: 3px solid #4caf50;
+            border: 3px solid #0984e3;
         }
         video, canvas {
             position: absolute;
@@ -28,87 +35,113 @@
             left: 0;
             width: 100%;
             height: 100%;
-            /* قلب الفيديو ليعمل كمرآة */
-            transform: scaleX(-1);
+            transform: scaleX(-1); /* مرآة */
         }
         h1 {
-            color: #4caf50;
+            color: #0984e3;
+            margin-top: 0;
+        }
+        .data-container {
+            width: 350px;
+            height: 520px; /* ارتفاع مناسب */
+            background-color: #636e72;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-y: auto; /* شريط تمرير عند الحاجة */
+            font-family: 'Courier New', Courier, monospace; /* خط مناسب للكود */
+            font-size: 14px;
+            border: 2px solid #b2bec3;
+        }
+        .data-container h2 {
+            margin-top: 0;
+            text-align: center;
+            color: #dfe6e9;
+            border-bottom: 1px solid #dfe6e9;
+            padding-bottom: 10px;
+        }
+        pre {
+            white-space: pre-wrap; /* للسماح بالتفاف النص */
+            word-wrap: break-word;
+            color: #fdcb6e;
         }
     </style>
 </head>
 <body>
-    <h1>أداة تحليل اليد باستخدام MediaPipe</h1>
-    <p>ارفع يدك أمام الكاميرا</p>
-    <div class="container">
-        <video id="webcam" autoplay playsinline></video>
-        <canvas id="outputCanvas"></canvas>
+    <div class="main-container">
+        <h1>أداة تحليل اليد</h1>
+        <p>ارفع يدك أمام الكاميرا لترى البيانات</p>
+        <div class="video-container">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="outputCanvas"></canvas>
+        </div>
     </div>
 
-    <!-- استيراد مكتبات MediaPipe -->
+    <div class="data-container">
+        <h2>بيانات اليد الخام (Hand 0)</h2>
+        <pre id="landmarks-data">في انتظار اكتشاف يد...</pre>
+    </div>
+
+    <!-- استيراد مكتبات MediaPipe (لا تغيير هنا) -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <script>
-        // --- الحصول على عناصر الصفحة ---
         const videoElement = document.getElementById('webcam' );
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
+        const landmarksDataElement = document.getElementById('landmarks-data');
 
-        // --- دالة لمعالجة النتائج ---
         function onResults(results) {
-            // تجهيز الـ Canvas
+            // --- جزء الرسم (لا تغيير كبير هنا) ---
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-            // إذا تم اكتشاف أيادي
             if (results.multiHandLandmarks) {
-                // المرور على كل يد تم اكتشافها
                 for (const landmarks of results.multiHandLandmarks) {
-                    // رسم الموصلات (الهيكل العظمي لليد)
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
-                    // رسم النقاط المرجعية (المفاصل)
                     drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
                 }
             }
             canvasCtx.restore();
+
+            // --- الجزء الجديد: استخراج وعرض البيانات ---
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // سنعرض بيانات اليد الأولى التي تم اكتشافها (index 0)
+                const handLandmarks = results.multiHandLandmarks[0];
+                
+                // تحويل كائن البيانات إلى نص JSON منسق وجميل
+                const jsonData = JSON.stringify(handLandmarks, null, 2);
+                
+                // عرض البيانات في العنصر المخصص
+                landmarksDataElement.textContent = jsonData;
+            } else {
+                landmarksDataElement.textContent = "في انتظار اكتشاف يد...";
+            }
         }
 
-        // --- إعداد MediaPipe Hands ---
+        // --- إعداد MediaPipe Hands (لا تغيير هنا) ---
         const hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-            }
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         } );
-
-        // ضبط الخيارات
         hands.setOptions({
-            maxNumHands: 2, // أقصى عدد للأيادي التي يتم تتبعها
-            modelComplexity: 1, // 1 = دقة عالية, 0 = دقة منخفضة وأداء أسرع
-            minDetectionConfidence: 0.5, // أدنى درجة ثقة لاعتبار الكشف ناجحًا
-            minTrackingConfidence: 0.5 // أدنى درجة ثقة لمتابعة التتبع
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
-
-        // ربط دالة معالجة النتائج
         hands.onResults(onResults);
 
-        // --- إعداد الكاميرا ---
+        // --- إعداد الكاميرا (لا تغيير هنا) ---
         const camera = new Camera(videoElement, {
             onFrame: async () => {
-                // إرسال إطار الفيديو إلى MediaPipe للمعالجة
                 await hands.send({ image: videoElement });
             },
             width: 640,
             height: 480
         });
-
-        // بدء تشغيل الكاميرا
         camera.start();
-
-        console.log("أداة تحليل اليد جاهزة!");
-
     </script>
 </body>
 </html>
