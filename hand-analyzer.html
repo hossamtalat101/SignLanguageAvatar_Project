@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>أداة تحليل اليد - MediaPipe</title>
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #333;
+            color: white;
+        }
+        .container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            border: 3px solid #4caf50;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            /* قلب الفيديو ليعمل كمرآة */
+            transform: scaleX(-1);
+        }
+        h1 {
+            color: #4caf50;
+        }
+    </style>
+</head>
+<body>
+    <h1>أداة تحليل اليد باستخدام MediaPipe</h1>
+    <p>ارفع يدك أمام الكاميرا</p>
+    <div class="container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <!-- استيراد مكتبات MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script>
+        // --- الحصول على عناصر الصفحة ---
+        const videoElement = document.getElementById('webcam' );
+        const canvasElement = document.getElementById('outputCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        // --- دالة لمعالجة النتائج ---
+        function onResults(results) {
+            // تجهيز الـ Canvas
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            // إذا تم اكتشاف أيادي
+            if (results.multiHandLandmarks) {
+                // المرور على كل يد تم اكتشافها
+                for (const landmarks of results.multiHandLandmarks) {
+                    // رسم الموصلات (الهيكل العظمي لليد)
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
+                    // رسم النقاط المرجعية (المفاصل)
+                    drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        // --- إعداد MediaPipe Hands ---
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        } );
+
+        // ضبط الخيارات
+        hands.setOptions({
+            maxNumHands: 2, // أقصى عدد للأيادي التي يتم تتبعها
+            modelComplexity: 1, // 1 = دقة عالية, 0 = دقة منخفضة وأداء أسرع
+            minDetectionConfidence: 0.5, // أدنى درجة ثقة لاعتبار الكشف ناجحًا
+            minTrackingConfidence: 0.5 // أدنى درجة ثقة لمتابعة التتبع
+        });
+
+        // ربط دالة معالجة النتائج
+        hands.onResults(onResults);
+
+        // --- إعداد الكاميرا ---
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                // إرسال إطار الفيديو إلى MediaPipe للمعالجة
+                await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
+        // بدء تشغيل الكاميرا
+        camera.start();
+
+        console.log("أداة تحليل اليد جاهزة!");
+
+    </script>
+</body>
+</html>
