@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>نموذج تجريبي: نص → إيماءة يد ثلاثية الأبعاد</title>
+  <style>
+    body { margin:0; background:#111; color:#eee; font-family: "Cairo", sans-serif; display:flex; flex-direction:column; align-items:center; }
+    #ui { width: 860px; max-width: calc(100vw - 20px); margin: 12px; display:flex; gap:8px; align-items:center; }
+    #text { flex:1; padding:8px 12px; border-radius:6px; border:none; font-size:16px; }
+    button { padding:8px 14px; border-radius:6px; border:none; background:#4caf50; color:white; cursor:pointer; }
+    canvas { width: 860px; height: 560px; max-width: calc(100vw - 20px); border: 3px solid #222; border-radius:6px; display:block; }
+    .legend { width:860px; max-width:calc(100vw - 20px); margin:8px; font-size:14px; color:#ccc; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <input id="text" placeholder="اكتب نصاً بالعربية مثال: ا أو سلام أو مرحبا" />
+    <button id="play">شغّل</button>
+    <button id="stop">إيقاف</button>
+  </div>
+  <canvas id="c"></canvas>
+  <div class="legend">
+    <b>ملاحظة:</b> هذا نموذج مبسّط لتعريف مفهوم التحريك (poses). يمكنك تعديل أو إضافة المزيد من الحركات في كائن <code>POSES</code> في الكود.
+  </div>
+
+  <!-- Three.js من CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+
+  <script>
+  // ---------------------------------------
+  // إعداد المشهد، الكاميرا، الإضاءات، الـrenderer
+  // ---------------------------------------
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111111);
+
+  const camera = new THREE.PerspectiveCamera(45, 860/560, 0.1, 1000);
+  camera.position.set(0, 3, 10);
+  camera.lookAt(0, 1.5, 0);
+
+  const light = new THREE.DirectionalLight(0xffffff, 1.0);
+  light.position.set(5,10,7);
+  scene.add(light);
+  scene.add(new THREE.AmbientLight(0x404040, 1.2));
+
+  renderer.setSize(860,560);
+  function resize() {
+    const width = Math.min(860, window.innerWidth - 20);
+    const height = Math.min(560, Math.max(300, window.innerHeight - 220));
+    renderer.setSize(width, height);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------------------------------------
+  // بناء "يد" مبسطة: palm + 5 أصابع × 3 مفاصل
+  // كل جزء هو Object3D (عظمة) مع Mesh
+  // ---------------------------------------
+  const hand = new THREE.Object3D();
+  scene.add(hand);
+
+  // Palm
+  const palmGeo = new THREE.BoxGeometry(2.4, 0.7, 1.2);
+  const palmMat = new THREE.MeshStandardMaterial({ color:0xffd099, metalness:0.1, roughness:0.8 });
+  const palm = new THREE.Mesh(palmGeo, palmMat);
+  palm.position.set(0,1.5,0);
+  hand.add(palm);
+
+  // Fingers config: positions along x, rotation offset
+  const fingerOffsets = [
+    { name:'thumb', x:-0.9, z:0.7, sign:-1 },
+    { name:'index', x:-0.45, z:1.0, sign:-1 },
+    { name:'middle', x:0.0, z:1.05, sign:-1 },
+    { name:'ring', x:0.45, z:1.0, sign:-1 },
+    { name:'pinky', x:0.9, z:0.75, sign:-1 }
+  ];
+
+  // create finger bones structure
+  const fingers = {}; // fingers[name] = [bone1, bone2, bone3]
+  const boneMaterial = new THREE.MeshStandardMaterial({ color:0xffd099 });
+
+  fingerOffsets.forEach((f, idx) => {
+    const phalanxLength = [0.6, 0.5, 0.4]; // ثلاثة أجزاء
+    let parent = new THREE.Object3D();
+    parent.position.set(f.x, 1.9, f.z);
+    // rotate base so finger points forward a bit
+    parent.rotation.x = THREE.MathUtils.degToRad(-20) * f.sign;
+
+    palm.add(parent);
+
+    const bones = [];
+    for (let i=0;i<3;i++){
+      const geom = new THREE.BoxGeometry(0.26 - i*0.03, phalanxLength[i], 0.26 - i*0.03);
+      const mesh = new THREE.Mesh(geom, boneMaterial);
+      // pivot: top of bone so rotation bends towards palm
+      mesh.position.y = phalanxLength[i]/2;
+      const bone = new THREE.Object3D();
+      bone.add(mesh);
+      bone.position.set(0,0,0);
+      parent.add(bone);
+
+      // prepare for next bone: attach next parent to mesh end
+      const nextParent = new THREE.Object3D();
+      nextParent.position.set(0, phalanxLength[i], 0);
+      bone.add(nextParent);
+
+      // move references
+      parent = nextParent;
+      bones.push(bone);
+    }
+    fingers[f.name] = bones;
+  });
+
+  // small rotation to view like mirrored (hand facing camera)
+  hand.rotation.y = THREE.MathUtils.degToRad(180);
+
+  // ---------------------------------------
+  // تعريف poses: كل pose يعطي زاوية ثني لكل مفصل
+  // سنمثّل كل مفصل بزاوية حول المحور X (radians)
+  // بنية POSE: { thumb:[a,b,c], index: [...], ... }
+  // الزوايا: 0 = مفرود، أكبر قيمة = مثني
+  // ---------------------------------------
+  const POSES = {
+    // مفتوح: كل الأصابع مفرودة
+    'open': {
+      thumb:[0.0, 0.0, 0.0],
+      index:[0.0, 0.0, 0.0],
+      middle:[0.0, 0.0, 0.0],
+      ring:[0.0, 0.0, 0.0],
+      pinky:[0.0, 0.0, 0.0]
+    },
+    // قبضة (closed)
+    'fist': {
+      thumb:[0.9, 0.6, 0.3],
+      index:[1.3, 1.0, 0.8],
+      middle:[1.3, 1.0, 0.8],
+      ring:[1.2, 0.9, 0.7],
+      pinky:[1.1, 0.8, 0.6]
+    },
+    // مثال لحرف 'ا' — نفترض: قبضة خفيفة (كمثال تعليمي)
+    'alef': {
+      thumb:[0.2,0.0,0.0],
+      index:[0.0,0.0,0.0],
+      middle:[0.0,0.0,0.0],
+      ring:[0.0,0.0,0.0],
+      pinky:[0.0,0.0,0.0]
+    },
+    // مثال لحرف 'س' — ثلاثة أصابع مرفوعة
+    'seen': {
+      thumb:[1.0,0.7,0.4],
+      index:[0.0,0.0,0.0],
+      middle:[0.0,0.0,0.0],
+      ring:[1.2,0.9,0.7],
+      pinky:[1.1,0.8,0.6]
+    },
+    // مثال كلمة "سلام" (سلسلة poses) — هنا مجرد pose واحدة تمثيلية
+    'salaam': {
+      thumb:[0.0,0.0,0.0],
+      index:[0.1,0.0,0.0],
+      middle:[0.3,0.1,0.0],
+      ring:[0.6,0.3,0.1],
+      pinky:[0.7,0.4,0.2]
+    }
+  };
+
+  // خريطة بسيطة من حروف عربية إلى اسم pose
+  // يمكنك توسيعها لاحقاً حسب قاعدة الإيماءات الحقيقية
+  const CHAR_TO_POSE = {
+    'ا':'alef',
+    'س':'seen',
+    'سلا':'salaam', // مثال: لو كتبت سلا يمكن التعرف على كلمة
+    'سلا م':'salaam'
+  };
+
+  // helper: get pose by key or fallback open
+  function getPose(name) {
+    return POSES[name] || POSES['open'];
+  }
+
+  // ---------------------------------------
+  // وظائف تحريك: interpolation بين poses
+  // ---------------------------------------
+  let currentPose = getPose('open');
+  let targetPose = getPose('open');
+  let anim = null;
+  const TRANSITION_TIME = 600; // ms لكل انتقال
+
+  function setTargetPoseByName(poseName) {
+    targetPose = getPose(poseName);
+    startTransition(targetPose, TRANSITION_TIME);
+  }
+
+  function startTransition(goalPose, duration) {
+    if (anim) cancelAnimationFrame(anim.raf);
+    const startTime = performance.now();
+    const fromPose = currentPose;
+    anim = {
+      raf: null,
+      tick(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        // smoothstep interpolation
+        const s = t * t * (3 - 2 * t);
+        // interpolate each finger and bone
+        for (const fname in fingers) {
+          const bones = fingers[fname];
+          const fromAngles = fromPose[fname] || [0,0,0];
+          const toAngles = goalPose[fname] || [0,0,0];
+          for (let bi = 0; bi < bones.length; bi++) {
+            const a0 = fromAngles[bi] || 0;
+            const a1 = toAngles[bi] || 0;
+            const angle = a0 + (a1 - a0) * s;
+            bones[bi].rotation.x = angle * (fname === 'thumb' ? -1 : -1); // ثني بإتجاه واحد
+          }
+        }
+        if (t >= 1) {
+          currentPose = goalPose;
+          anim = null;
+        } else {
+          anim.raf = requestAnimationFrame(anim.tick.bind(anim));
+        }
+      }
+    };
+    anim.raf = requestAnimationFrame(anim.tick.bind(anim));
+  }
+
+  // ---------------------------------------
+  // تحويل نص إلى قائمة أسماء poses (سلسلة)
+  // هنا استراتيجية بسيطة: لكل حرف نبحث في CHAR_TO_POSE، وإلا نستخدم 'open'
+  // يمكنك تعديل ليدعم كلمات، حروف مفردة، تهجئة حرفية، أو قواعد أكثر ذكاءاً.
+  // ---------------------------------------
+  function textToPoseNames(text) {
+    text = text.trim();
+    if (!text) return ['open'];
+    const poses = [];
+    // محاولة match لكلمات محددة أطول أولاً
+    const lowered = text;
+    // مثال: لو النص كامل مطابق لكلمة
+    if (CHAR_TO_POSE[lowered]) {
+      poses.push(CHAR_TO_POSE[lowered]);
+      return poses;
+    }
+    // تقسيم حرفي بسيط:
+    for (const ch of lowered) {
+      if (CHAR_TO_POSE[ch]) poses.push(CHAR_TO_POSE[ch]);
+      else poses.push('open'); // افتراض افتراضي
+    }
+    return poses;
+  }
+
+  // ---------------------------------------
+  // تسلسل التشغيل: يعطي كل pose مدة ثم ينتقل للتالي
+  // ---------------------------------------
+  let playQueue = [];
+  let playing = false;
+  let playIndex = 0;
+  let playTimer = null;
+
+  function playText(text) {
+    stopPlaying();
+    const poses = textToPoseNames(text);
+    playQueue = poses;
+    playIndex = 0;
+    playing = true;
+    nextInQueue();
+  }
+
+  function nextInQueue() {
+    if (!playing) return;
+    if (playIndex >= playQueue.length) {
+      playing = false;
+      return;
+    }
+    const poseName = playQueue[playIndex++];
+    setTargetPoseByName(poseName);
+    // ننتظر TRANSITION_TIME + بعض للعرض
+    playTimer = setTimeout(nextInQueue, TRANSITION_TIME + 400);
+  }
+
+  function stopPlaying() {
+    playing = false;
+    if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+    if (anim) { cancelAnimationFrame(anim.raf); anim = null; }
+    // نعود للوضع المفتوح
+    startTransition(getPose('open'), 300);
+  }
+
+  // ---------------------------------------
+  // تحكم UI
+  // ---------------------------------------
+  document.getElementById('play').addEventListener('click', ()=> {
+    const txt = document.getElementById('text').value.trim();
+    if (!txt) return alert('أدخل نصاً أولاً');
+    playText(txt);
+  });
+  document.getElementById('stop').addEventListener('click', stopPlaying);
+
+  // ---------------------------------------
+  // رسم الحلقة
+  // ---------------------------------------
+  function animate() {
+    requestAnimationFrame(animate);
+    // تدوير خفيف للعرض
+    hand.rotation.y += 0.002;
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ---------------------------------------
+  // تعليمات: إضافة أو تعديل poses
+  // مثال إضافة حرف جديد:
+  // POSES['ba'] = { thumb:[..], index:[..], ... }
+  // CHAR_TO_POSE['ب'] = 'ba'
+  // ---------------------------------------
+  </script>
+</body>
+</html>
