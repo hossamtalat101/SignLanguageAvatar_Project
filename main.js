@@ -4,12 +4,13 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
 // --- المتغيرات العالمية ---
 let scene, camera, renderer, controls, model;
-let recordedAnimationData = null;
+const animationClips = {}; // << جديد: لتخزين كل بيانات الحركات المحملة
+let currentPlayingClip = null;
 let currentFrame = 0;
-let isPlayingRecorded = false;
-const initialBoneQuaternions = {}; // << جديد: لتخزين الدوران الأولي للعظام
+let isPlaying = false;
+const initialBoneQuaternions = {};
 
-// --- قاموس الربط (نفسه) ---
+// --- قاموس الربط (لم يتغير) ---
 const boneMap = {
     'mixamorigLeftHandThumb1': { start: 0, end: 1 }, 'mixamorigLeftHandThumb2': { start: 1, end: 2 }, 'mixamorigLeftHandThumb3': { start: 2, end: 3 }, 'mixamorigLeftHandThumb4': { start: 3, end: 4 },
     'mixamorigLeftHandIndex1': { start: 0, end: 5 }, 'mixamorigLeftHandIndex2': { start: 5, end: 6 }, 'mixamorigLeftHandIndex3': { start: 6, end: 7 }, 'mixamorigLeftHandIndex4': { start: 7, end: 8 },
@@ -18,7 +19,39 @@ const boneMap = {
     'mixamorigLeftHandPinky1': { start: 0, end: 17 }, 'mixamorigLeftHandPinky2': { start: 17, end: 18 }, 'mixamorigLeftHandPinky3': { start: 18, end: 19 }, 'mixamorigLeftHandPinky4': { start: 19, end: 20 },
 };
 
-// --- دالة تحميل النموذج (محدثة) ---
+// --- دالة البداية الرئيسية (Init) ---
+function init() {
+    // ... (جزء الإعداد لم يتغير) ...
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe0e0e0);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.5, 3);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('avatar-container').appendChild(renderer.domElement);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+    directionalLight.position.set(5, 10, 7.5);
+    scene.add(directionalLight);
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    
+    loadAvatar();
+    
+    // --- الجزء الجديد: ربط الأزرار بشكل ديناميكي ---
+    document.querySelectorAll('.action-button').forEach(button => {
+        button.addEventListener('click', () => {
+            const animationName = button.dataset.animation;
+            playAnimation(animationName);
+        });
+    });
+
+    window.addEventListener('resize', onWindowResize);
+    animate();
+}
+
+// --- دوال التحميل (محدثة) ---
 function loadAvatar() {
     const fbxLoader = new FBXLoader();
     fbxLoader.load('models/avatar.fbx', (fbx) => {
@@ -26,7 +59,6 @@ function loadAvatar() {
         model.scale.set(0.01, 0.01, 0.01);
         scene.add(model);
         
-        // --- الجزء الجديد: حفظ الدوران الأولي لكل عظمة ---
         const skeleton = model.children[1].skeleton;
         for (const boneName in boneMap) {
             const bone = skeleton.getBoneByName(boneName);
@@ -34,18 +66,44 @@ function loadAvatar() {
                 initialBoneQuaternions[boneName] = bone.quaternion.clone();
             }
         }
-        console.log("Avatar loaded and initial bone rotations captured.");
+        console.log("Avatar loaded.");
+        
+        // --- الجزء الجديد: تحميل كل الحركات بعد تحميل النموذج ---
+        preloadAnimations();
     }, undefined, (error) => console.error(error));
 }
 
-// --- دالة تحديث الشخصية (النسخة النهائية والمحسنة) ---
-function updateAvatarFromRecordedData() {
-    if (!isPlayingRecorded || !model || !recordedAnimationData || currentFrame >= recordedAnimationData.length) {
-        isPlayingRecorded = false;
+function preloadAnimations() {
+    const animationsToLoad = ['clear_wave_motion', 'yes_sign']; // قائمة بكل الحركات
+    animationsToLoad.forEach(name => {
+        fetch(`models/${name}.json`)
+            .then(response => response.json())
+            .then(data => {
+                animationClips[name] = data;
+                console.log(`Animation "${name}" loaded.`);
+            })
+            .catch(error => console.error(`Failed to load animation ${name}:`, error));
+    });
+}
+
+// --- دوال التحكم والتشغيل (محدثة) ---
+function playAnimation(name) {
+    if (!animationClips[name]) {
+        alert(`Animation "${name}" is not loaded yet.`);
+        return;
+    }
+    currentPlayingClip = animationClips[name];
+    currentFrame = 0;
+    isPlaying = true;
+}
+
+function updateAvatarPose() {
+    if (!isPlaying || !model || !currentPlayingClip || currentFrame >= currentPlayingClip.length) {
+        isPlaying = false;
         return;
     }
 
-    const frameData = recordedAnimationData[currentFrame];
+    const frameData = currentPlayingClip[currentFrame];
     const skeleton = model.children[1].skeleton;
 
     for (const boneName in boneMap) {
@@ -66,43 +124,28 @@ function updateAvatarFromRecordedData() {
             const defaultDirection = new THREE.Vector3(0, 1, 0);
             const rotationDelta = new THREE.Quaternion().setFromUnitVectors(defaultDirection, localDirection);
 
-            // --- التعديل الأهم ---
-            // نطبق الدوران الجديد على الدوران الأولي للعظمة، بدلاً من استبداله بالكامل
             const finalQuaternion = initialBoneQuaternions[boneName].clone().multiply(rotationDelta);
-
-            // تطبيق الدوران النهائي بسلاسة
-            bone.quaternion.slerp(finalQuaternion, 0.9); // 0.9 لاستجابة سريعة وطبيعية
+            bone.quaternion.slerp(finalQuaternion, 0.9);
         }
     }
 
     currentFrame++;
 }
 
-// --- بقية الكود (لم يتغير) ---
-function init() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xe0e0e0);
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.5, 3);
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('avatar-container').appendChild(renderer.domElement);
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-    scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-    directionalLight.position.set(5, 10, 7.5);
-    scene.add(directionalLight);
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 1, 0);
+// --- حلقة العرض ودوال الأحداث (محدثة) ---
+function animate() {
+    requestAnimationFrame(animate);
+    if (isPlaying) {
+        updateAvatarPose();
+    }
     controls.update();
-    loadAvatar();
-    loadRecordedAnimation('models/clear_wave_motion.json'); 
-    document.getElementById('playRecordedButton').addEventListener('click', playRecordedAnimation);
-    window.addEventListener('resize', onWindowResize);
-    animate();
+    renderer.render(scene, camera);
 }
-function loadRecordedAnimation(url) { fetch(url).then(response => { if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); } return response.json(); }).then(data => { recordedAnimationData = data; console.log(`Recorded animation loaded with ${data.length} frames.`); }).catch(error => console.error('Error loading recorded animation:', error)); }
-function playRecordedAnimation() { if (!recordedAnimationData) { alert("لم يتم تحميل بيانات الحركة المسجلة بعد."); return; } isPlayingRecorded = true; currentFrame = 0; }
-function animate() { requestAnimationFrame(animate); if (isPlayingRecorded) { updateAvatarFromRecordedData(); } controls.update(); renderer.render(scene, camera); }
-function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
 init();

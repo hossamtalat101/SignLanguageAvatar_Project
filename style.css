@@ -1,22 +1,7 @@
-/* استيراد خط جميل للكتابة */
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap' );
 
-body {
-    margin: 0;
-    font-family: 'Cairo', sans-serif;
-    background-color: #f0f0f0;
-    color: #333;
-    overflow: hidden;
-}
-
-#avatar-container {
-    width: 100vw;
-    height: 100vh;
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: -1;
-}
+body { margin: 0; font-family: 'Cairo', sans-serif; background-color: #f0f0f0; color: #333; overflow: hidden; }
+#avatar-container { width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; z-index: -1; }
 
 .ui-panel {
     position: fixed;
@@ -34,17 +19,9 @@ body {
     width: 350px;
     z-index: 10;
 }
+.ui-panel h2 { margin: 0 0 10px 0; color: #2c3e50; }
 
-.ui-panel h2 {
-    margin: 0 0 10px 0;
-    color: #2c3e50;
-}
-
-.ui-panel p {
-    color: #7f8c8d;
-}
-
-button {
+.action-button {
     width: 100%;
     padding: 10px 25px;
     font-size: 16px;
@@ -56,7 +33,4 @@ button {
     cursor: pointer;
     transition: background-color 0.3s;
 }
-
-button:hover {
-    background-color: #2980b9;
-}
+.action-button:hover { background-color: #2980b9; }
